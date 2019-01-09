@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import keras
-from keras.layers import Conv2D, TimeDistributed, LSTM, Dense, Input
+from keras.layers import Conv2D, TimeDistributed, LSTM, Dense, Input, InputLayer
 from keras.optimizers import Adam
 from keras.models import Model, Sequential
 
@@ -41,6 +41,24 @@ def draw(drawing):
     return True
 
 
+def build_descriminator():
+    model = keras.Sequential()
+    model.add(InputLayer(batch_input_shape=(5, 30, 2)))
+    print(model.output_shape)
+    #Hvis input_shape er None, kan timesteps være variabel
+    model.add(TimeDistributed(Conv2D(32, (2, 2))))
+    model.add(TimeDistributed(Conv2D(16, (2, 2))))
+    
+    model.add(LSTM(16, return_sequences=True,))
+    model.add(LSTM(8, return_sequences=True))
+    model.add(Dense(1, activation='sigmoid'))
+
+    img = Input(shape=(5, 30, 30, 1))
+    validity = model(img)
+
+    return Model(img, validity)
+
+
 
 def get_mask():
     length = np.zeros(len(data))
@@ -52,6 +70,7 @@ def get_mask():
 
     for i, r in enumerate(data):
         length[i] = np.max([len(_[0]) for _ in r["drawing"]])
+
     #plt.plot(length)
     #np.size(length[length>30])
     #er = 19270, dvs under 10 procent af dataen anvender mere end 30 linjer per strøg
@@ -81,15 +100,23 @@ idx = 0
 
 #np.max([len(_[0]) for _ in data[0]["drawing"]])
 # indlæs data fra ndjson fil
+
+'''
 with open('simplified_banana.ndjson') as f:
     data = ndjson.load(f)
 
 mask = get_mask()
 
+print(len(mask)-np.count_nonzero(mask))
+
+
 
 f_data = list(compress(data, mask))
 
-shuffle(f_data)
+print(len(data)-len(f_data))
+
+'''
+
 
 
 
@@ -101,8 +128,10 @@ discriminator.compile(loss='binary_crossentropy',
     optimizer=optimizer,
     metrics=['accuracy'])
 
+discriminator.summary()
 
 
+print("a")
 
 
 
@@ -171,22 +200,6 @@ def fetch_data(batch_size=1):
 
 
 
-
-def build_descriminator():
-    model = keras.Sequential()
-    #Hvis input_shape er None, kan timesteps være variabel
-    model.add(TimeDistributed(Conv2D(32, (2, 2)), input_shape=(5, 30, 2)))
-    model.add(TimeDistributed(Conv2D(16, (2, 2))))
-    
-    model.add(LSTM(16, return_sequences=True,))
-    model.add(LSTM(8, return_sequences=True))
-    model.add(Dense(1, activation='sigmoid'))
-    model.summary()
-
-    img = Input(shape=(5,  30, 2))
-    validity = model(img)
-
-    return Model(img, validity)
 
 
 
