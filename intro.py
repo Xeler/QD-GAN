@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import keras
-from keras.layers import Conv2D, TimeDistributed, LSTM, Dense, Input, InputLayer
+from keras.layers import Conv2D, TimeDistributed, LSTM, Dense, Input, InputLayer, ConvLSTM2D, ReLU
 from keras.optimizers import Adam
 from keras.models import Model, Sequential
 
@@ -43,14 +43,22 @@ def draw(drawing):
 
 def build_descriminator():
     model = keras.Sequential()
-    model.add(InputLayer(batch_input_shape=(5, 30, 2)))
+    model.add(InputLayer(batch_input_shape=(10, 5, 30, 2, 1)))
     print(model.output_shape)
+
+    model.add(ConvLSTM2D(32, 2, return_sequences=True, padding="same"))
+    model.add(ReLU())
+
+    print(model.output_shape)
+
+    model.add(ConvLSTM2D(16, (2,2)))
+
+    print(model.output_shape)
+
     #Hvis input_shape er None, kan timesteps være variabel
-    model.add(TimeDistributed(Conv2D(32, (2, 2))))
-    model.add(TimeDistributed(Conv2D(16, (2, 2))))
+#    model.add(TimeDistributed(Conv2D(32, (2, 2), data_format="channels_last")))
+#    model.add(TimeDistributed(Conv2D(16, (2, 2))))
     
-    model.add(LSTM(16, return_sequences=True,))
-    model.add(LSTM(8, return_sequences=True))
     model.add(Dense(1, activation='sigmoid'))
 
     img = Input(shape=(5, 30, 30, 1))
@@ -96,29 +104,56 @@ def get_mask():
 
     return mask
 
+
+
+
+
+
+
 idx = 0
+
+
+def fetch_data(batch_size=1):
+    global idx
+    if idx + batch_size > len(f_data):
+        idx = 0
+    
+    
+    items = items = np.zeros((batch_size, 5, 30, 2))
+    for k,v in enumerate(f_data[idx:idx+batch_size]):
+        for i, s in enumerate(v["drawing"]):
+            for j, m in enumerate(s[0]):
+                items[k][i][j][0] = m
+            
+            for j, m in enumerate(s[1]):
+                items[k][i][j][1] = m
+            
+        
+    
+
+            
+
+
+
+    idx = idx + batch_size
+    return items
+
+
+
 
 #np.max([len(_[0]) for _ in data[0]["drawing"]])
 # indlæs data fra ndjson fil
 
 '''
+
 with open('simplified_banana.ndjson') as f:
     data = ndjson.load(f)
 
 mask = get_mask()
 
-print(len(mask)-np.count_nonzero(mask))
-
-
 
 f_data = list(compress(data, mask))
-
-print(len(data)-len(f_data))
-
 '''
-
-
-
 
 optimizer = Adam(0.0002, 0.5)
 
@@ -129,6 +164,7 @@ discriminator.compile(loss='binary_crossentropy',
     metrics=['accuracy'])
 
 discriminator.summary()
+
 
 
 print("a")
@@ -161,30 +197,6 @@ def build_generator(self):
 
 
 
-def fetch_data(batch_size=1):
-    global idx
-    if idx + batch_size > len(f_data):
-        idx = 0
-    
-    
-    items = items = np.zeros((batch_size, 5, 30, 2))
-    for k,v in enumerate(f_data[idx:idx+batch_size]):
-        for i, s in enumerate(v["drawing"]):
-            for j, m in enumerate(s[0]):
-                items[k][i][j][0] = m
-            
-            for j, m in enumerate(s[1]):
-                items[k][i][j][1] = m
-            
-        
-    
-
-            
-
-
-
-    idx = idx + batch_size
-    return items
 
 
 #https://machinelearningmastery.com/return-sequences-and-return-states-for-lstms-in-keras/
