@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import keras
-from keras.layers import Flatten, Conv2D, Dense, Input, InputLayer, ConvLSTM2D, ReLU, MaxPooling3D, MaxPooling2D, MaxPool1D
+from keras.layers import Flatten, Conv2D, LSTM, Dense, Input, InputLayer, ConvLSTM2D, ReLU, MaxPooling3D, MaxPooling2D, MaxPool1D, Reshape, TimeDistributed, Conv1D
 from keras.optimizers import Adam
 from keras.models import Model, Sequential
 
@@ -35,6 +35,12 @@ from random import shuffle
 
 
 
+latent_dim = (4, 100)
+
+drawing_dim = (4, 30, 2, 1)
+
+
+
 
 def draw(drawing):
     for seq in drawing:
@@ -42,14 +48,61 @@ def draw(drawing):
 
     return True
 
+def train(epochs, batch_size=100, sample_interval=50):
+
+    # Load the dataset
+    X_train = fetch_data(batch_size)
+    # Rescale 0 to 1
+    #X_train = X_train / 255.
+    
+    # Adversarial ground truths
+    valid = np.ones((batch_size, 1))
+    fake = np.zeros((batch_size, 1))
+
+    for epoch in range(epochs):
+
+        # ---------------------
+        #  Train Discriminator
+        # ---------------------
+
+        # Select a random batch of images
+        idx = np.random.randint(0, X_train.shape[0], batch_size)
+        imgs = X_train[idx]
+
+        noise = np.random.normal(0, 1, (batch_size, 4, 100))
+
+        # Generate a batch of new images
+        gen_imgs = generator.predict(noise)
+
+        # Train the discriminator
+        d_loss_real = discriminator.train_on_batch(imgs, valid)
+        d_loss_fake = discriminator.train_on_batch(gen_imgs, fake)
+        d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+
+        # ---------------------
+        #  Train Generator
+        # ---------------------
+
+        # Train the generator (to have the discriminator label samples as valid)
+        g_loss = combined.train_on_batch(noise, valid)
+
+        # Plot the progress
+        print ("%d [D loss: %f, acc.: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100*d_loss[1], g_loss))
+
+        # If at save interval => save generated image samples
+        if epoch % sample_interval == 0:
+            print(gen_imgs[0])
+
+
+
 
 def build_descriminator():
     model = keras.Sequential()
-    model.add(InputLayer(batch_input_shape=(10, 4, 30, 2, 1)))
+    model.add(InputLayer(batch_input_shape=(100, 4, 30, 2, 1)))
     print(model.output_shape)
 
     #"causal" results in causal (dilated) convolutions, e.g. output[t] does not depend on input[t + 1:]. A zero padding is used such that the output has the same length as the original input. Useful when modeling temporal data where the model should not violate the temporal order. See WaveNet: A Generative Model for Raw Audio, section 2.1.
-    model.add(ConvLSTM2D(32, (2,2), return_sequences=True, padding="same"))
+    model.add(ConvLSTM2D(32, (2,2), return_sequences=True, padding="same", dropout=0.1))
     model.add(MaxPooling3D((2,2,1)))
     model.add(ReLU())
     print(model.output_shape)
@@ -117,7 +170,7 @@ def get_mask():
     #mask er nu kombineret af begge.
 
 
-    mask = [_<=5 and mask[i] for i, _ in enumerate(length)]
+    mask = [_<=4 and mask[i] for i, _ in enumerate(length)]
 
     return mask
 
@@ -136,7 +189,7 @@ def fetch_data(batch_size=1):
         idx = 0
     
     
-    items = items = np.zeros((batch_size, 5, 30, 2))
+    items = items = np.zeros((batch_size, 4, 30, 2, 1))
     for k,v in enumerate(f_data[idx:idx+batch_size]):
         for i, s in enumerate(v["drawing"]):
             for j, m in enumerate(s[0]):
@@ -157,11 +210,47 @@ def fetch_data(batch_size=1):
 
 
 
+def build_generator():
 
-#np.max([len(_[0]) for _ in data[0]["drawing"]])
-# indlæs data fra ndjson fil
+    model = Sequential()
+    ##Gen model mangler
 
-'''
+    model.add(LSTM(128, input_shape=latent_dim, return_sequences=True))
+    print(model.output_shape)
+    model.add(ReLU())
+
+    model.add(LSTM(256, return_sequences=True))
+    model.add(ReLU())
+    print(model.output_shape)
+
+    model.add(TimeDistributed(Reshape((64,4,1))))
+    print(model.output_shape)
+    model.add(TimeDistributed(Conv2D(60, (2,2), padding="same")))
+    model.add(ReLU())
+
+    print(model.output_shape)
+    model.add(TimeDistributed(MaxPooling2D((2,2))))
+    print(model.output_shape)
+
+    model.add(TimeDistributed(Flatten()))
+    print(model.output_shape)
+    model.add(TimeDistributed(Dense(30*2)))
+    model.add(TimeDistributed(Reshape((30,2,1))))    
+
+    model.summary()
+
+    noise = Input(shape=latent_dim)
+    img = model(noise)
+
+    return Model(noise, img)
+
+
+
+
+
+
+
+
 
 with open('simplified_banana.ndjson') as f:
     data = ndjson.load(f)
@@ -170,9 +259,22 @@ mask = get_mask()
 
 
 f_data = list(compress(data, mask))
-'''
+
+
+
+
+        # Build the generator
+generator = build_generator()
+
+#np.max([len(_[0]) for _ in data[0]["drawing"]])
+# indlæs data fra ndjson fil
+
+
+
+
 
 optimizer = Adam(0.0002, 0.5)
+
 
 # Build and compile the discriminator
 discriminator = build_descriminator()
@@ -182,35 +284,37 @@ discriminator.compile(loss='binary_crossentropy',
 
 discriminator.summary()
 
+discriminator.trainable = False
+
+
+# The generator takes noise as input and generates imgs
+z = Input(shape=latent_dim)
+img = generator(z)
+
+# The discriminator takes generated images as input and determines validity
+validity = discriminator(img)
+
+# The combined model  (stacked generator and discriminator)
+# Trains the generator to fool the discriminator
+combined = Model(z, validity)
+combined.compile(loss='binary_crossentropy', optimizer=optimizer)
+
+
+
+print("ok!!!")
+
+
+
+
+train(10002)
+
+
+
+
 
 
 print("a")
 
-
-
-def build_generator(self):
-
-    model = Sequential()
-    ##Gen model mangler
-
-    model.add(LSTM(256, input_dim=self.latent_dim))
-    model.add(LeakyReLU(alpha=0.2))
-    model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(512))
-    model.add(LeakyReLU(alpha=0.2))
-    model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(1024))
-    model.add(LeakyReLU(alpha=0.2))
-    model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(np.prod(self.img_shape), activation='tanh'))
-    model.add(Reshape(self.img_shape))
-
-    model.summary()
-
-    noise = Input(shape=(self.latent_dim,))
-    img = model(noise)
-
-    return Model(noise, img)
 
 
 
