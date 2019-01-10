@@ -9,6 +9,8 @@
 #https://machinelearningmastery.com/cnn-long-short-term-memory-networks/
 #https://carpedm20.github.io/faces/ illustrerer latent space sindsygt godt <3
 
+#https://www.youtube.com/watch?v=ywinX5wgdEU lstm   
+
 
 #We can achieve this by wrapping the entire CNN input model (one layer or more) in a TimeDistributed layer. This layer achieves the desired outcome of applying the same layer or layers multiple times. In this case, applying it multiple times to multiple input time steps and in turn providing a sequence of “image interpretations” or “image features” to the LSTM model to work on.
 
@@ -19,7 +21,7 @@ import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import keras
-from keras.layers import Conv2D, TimeDistributed, LSTM, Dense, Input, InputLayer, ConvLSTM2D, ReLU
+from keras.layers import Flatten, Conv2D, Dense, Input, InputLayer, ConvLSTM2D, ReLU, MaxPooling3D, MaxPooling2D, MaxPool1D
 from keras.optimizers import Adam
 from keras.models import Model, Sequential
 
@@ -43,25 +45,40 @@ def draw(drawing):
 
 def build_descriminator():
     model = keras.Sequential()
-    model.add(InputLayer(batch_input_shape=(10, 5, 30, 2, 1)))
+    model.add(InputLayer(batch_input_shape=(10, 4, 30, 2, 1)))
     print(model.output_shape)
 
-    model.add(ConvLSTM2D(32, 2, return_sequences=True, padding="same"))
+    #"causal" results in causal (dilated) convolutions, e.g. output[t] does not depend on input[t + 1:]. A zero padding is used such that the output has the same length as the original input. Useful when modeling temporal data where the model should not violate the temporal order. See WaveNet: A Generative Model for Raw Audio, section 2.1.
+    model.add(ConvLSTM2D(32, (2,2), return_sequences=True, padding="same"))
+    model.add(MaxPooling3D((2,2,1)))
     model.add(ReLU())
-
+    print(model.output_shape)
+    
+    
+    model.add(ConvLSTM2D(24, (2,1)))
     print(model.output_shape)
 
-    model.add(ConvLSTM2D(16, (2,2)))
-
+    model.add(MaxPooling2D())
+    model.add(ReLU())
     print(model.output_shape)
+
+    model.add(Conv2D(16, (2,1)))
+    model.add(ReLU())
+    print(model.output_shape)
+    model.add(Flatten())
+    print(model.output_shape)
+    model.add(Dense(1, activation="sigmoid"))
+    print(model.output_shape)
+    
+    #
+
 
     #Hvis input_shape er None, kan timesteps være variabel
 #    model.add(TimeDistributed(Conv2D(32, (2, 2), data_format="channels_last")))
 #    model.add(TimeDistributed(Conv2D(16, (2, 2))))
     
-    model.add(Dense(1, activation='sigmoid'))
 
-    img = Input(shape=(5, 30, 30, 1))
+    img = Input(shape=(4, 30, 2, 1))
     validity = model(img)
 
     return Model(img, validity)
@@ -176,7 +193,7 @@ def build_generator(self):
     model = Sequential()
     ##Gen model mangler
 
-    model.add(Dense(256, input_dim=self.latent_dim))
+    model.add(LSTM(256, input_dim=self.latent_dim))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
     model.add(Dense(512))
